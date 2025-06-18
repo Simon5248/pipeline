@@ -1,0 +1,395 @@
+pipeline {
+    agent any
+    
+    environment {
+        // 設定環境變數
+        MAVEN_HOME = tool 'Maven'
+        PATH = "${MAVEN_HOME}/bin:${env.PATH}"
+    }
+    
+    stages {
+        stage('準備環境') {
+            steps {
+                echo '開始準備測試環境...'
+                // 只在有工作空間時清理
+                script {
+                    try {
+                        cleanWs()
+                    } catch (Exception e) {
+                        echo "工作空間清理跳過: ${e.getMessage()}"
+                    }
+                }
+                
+                sh '''
+                    mkdir -p src/test/java
+                    mkdir -p src/main/resources
+                '''
+            }
+        }
+        
+        stage('安裝依賴') {
+            steps {
+                echo '安裝測試依賴...'
+                
+                // 創建 pom.xml - 使用 HTTP 客戶端而非 Selenium
+                writeFile file: 'pom.xml', text: '''<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <groupId>com.test</groupId>
+    <artifactId>web-connectivity-test</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <junit.version>5.9.2</junit.version>
+        <okhttp.version>4.12.0</okhttp.version>
+    </properties>
+    
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>${okhttp.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.16.1</version>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0-M9</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>'''
+                
+                sh 'mvn clean compile test-compile'
+            }
+        }
+        
+        stage('創建測試程式') {
+            steps {
+                echo '創建網站連通性測試程式...'
+                
+                // 創建測試類別 - 測試多個網站的連通性
+                writeFile file: 'src/test/java/WebConnectivityTest.java', text: '''
+import okhttp3.*;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+
+public class WebConnectivityTest {
+    
+    private OkHttpClient client;
+    
+    @BeforeEach
+    public void setUp() {
+        // 設定 HTTP 客戶端，模擬真實瀏覽器
+        client = new OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(chain -> {
+                Request original = chain.request();
+                Request.Builder requestBuilder = original.newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "zh-TW,zh;q=0.9,en;q=0.8")
+                    .header("Accept-Encoding", "gzip, deflate")
+                    .header("Connection", "keep-alive");
+                
+                Request request = requestBuilder.build();
+                return chain.proceed(request);
+            })
+            .build();
+    }
+    
+    @Test
+    @DisplayName("測試 Google 網站連通性")
+    public void testGoogleConnectivity() throws IOException {
+        System.out.println("開始測試 Google 連通性...");
+        
+        Request request = new Request.Builder()
+            .url("https://www.google.com")
+            .build();
+        
+        try (Response response = client.newCall(request).execute()) {
+            // 驗證 HTTP 狀態碼
+            int statusCode = response.code();
+            System.out.println("Google 回應狀態碼: " + statusCode);
+            assertTrue(statusCode >= 200 && statusCode < 400, 
+                "Google 應該回應成功狀態碼，實際收到: " + statusCode);
+            
+            // 驗證內容
+            String responseBody = response.body().string();
+            assertNotNull(responseBody, "回應內容不應為空");
+            assertTrue(responseBody.length() > 0, "回應內容長度應大於0");
+            
+            // 使用 Jsoup 解析 HTML
+            Document doc = Jsoup.parse(responseBody);
+            String title = doc.title();
+            System.out.println("頁面標題: " + title);
+            assertTrue(title.toLowerCase().contains("google"), 
+                "頁面標題應包含 'google'");
+            
+            System.out.println("✅ Google 連通性測試通過");
+        }
+    }
+    
+    @Test
+    @DisplayName("測試 GitHub 網站連通性")
+    public void testGitHubConnectivity() throws IOException {
+        System.out.println("開始測試 GitHub 連通性...");
+        
+        Request request = new Request.Builder()
+            .url("https://github.com")
+            .build();
+        
+        try (Response response = client.newCall(request).execute()) {
+            int statusCode = response.code();
+            System.out.println("GitHub 回應狀態碼: " + statusCode);
+            assertTrue(statusCode >= 200 && statusCode < 400, 
+                "GitHub 應該回應成功狀態碼，實際收到: " + statusCode);
+            
+            String responseBody = response.body().string();
+            Document doc = Jsoup.parse(responseBody);
+            String title = doc.title();
+            System.out.println("GitHub 頁面標題: " + title);
+            
+            System.out.println("✅ GitHub 連通性測試通過");
+        }
+    }
+    
+    @Test
+    @DisplayName("測試 Stack Overflow 網站連通性")
+    public void testStackOverflowConnectivity() throws IOException {
+        System.out.println("開始測試 Stack Overflow 連通性...");
+        
+        Request request = new Request.Builder()
+            .url("https://stackoverflow.com")
+            .build();
+        
+        try (Response response = client.newCall(request).execute()) {
+            int statusCode = response.code();
+            System.out.println("Stack Overflow 回應狀態碼: " + statusCode);
+            assertTrue(statusCode >= 200 && statusCode < 400, 
+                "Stack Overflow 應該回應成功狀態碼，實際收到: " + statusCode);
+            
+            String responseBody = response.body().string();
+            Document doc = Jsoup.parse(responseBody);
+            String title = doc.title();
+            System.out.println("Stack Overflow 頁面標題: " + title);
+            
+            System.out.println("✅ Stack Overflow 連通性測試通過");
+        }
+    }
+    
+    @Test
+    @DisplayName("測試網站回應時間")
+    public void testWebsiteResponseTime() throws IOException {
+        System.out.println("開始測試網站回應時間...");
+        
+        String[] urls = {
+            "https://www.google.com",
+            "https://github.com",
+            "https://stackoverflow.com"
+        };
+        
+        for (String url : urls) {
+            long startTime = System.currentTimeMillis();
+            
+            Request request = new Request.Builder()
+                .url(url)
+                .build();
+            
+            try (Response response = client.newCall(request).execute()) {
+                long endTime = System.currentTimeMillis();
+                long responseTime = endTime - startTime;
+                
+                System.out.println(url + " 回應時間: " + responseTime + "ms");
+                
+                // 驗證回應時間不超過 10 秒
+                assertTrue(responseTime < 10000, 
+                    url + " 回應時間過長: " + responseTime + "ms");
+            }
+        }
+        
+        System.out.println("✅ 回應時間測試通過");
+    }
+    
+    @Test
+    @DisplayName("測試無效網址處理")
+    public void testInvalidUrlHandling() {
+        System.out.println("開始測試無效網址處理...");
+        
+        Request request = new Request.Builder()
+            .url("https://this-website-does-not-exist-12345.com")
+            .build();
+        
+        assertThrows(IOException.class, () -> {
+            try (Response response = client.newCall(request).execute()) {
+                // 這裡應該拋出異常
+            }
+        }, "無效網址應該拋出 IOException");
+        
+        System.out.println("✅ 無效網址處理測試通過");
+    }
+}'''
+            }
+        }
+        
+        stage('執行測試') {
+            steps {
+                echo '執行網站連通性測試...'
+                
+                script {
+                    try {
+                        // 執行測試
+                        sh 'mvn test'
+                        echo '測試執行完成！'
+                        
+                    } catch (Exception e) {
+                        echo "測試執行失敗: ${e.getMessage()}"
+                        currentBuild.result = 'FAILURE'
+                        throw e
+                    }
+                }
+            }
+        }
+        
+        stage('產生測試報告') {
+            steps {
+                echo '產生測試報告...'
+                
+                // 發布測試結果
+                publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
+                
+                // 保存測試報告
+                archiveArtifacts artifacts: 'target/surefire-reports/**/*', 
+                                allowEmptyArchive: true
+                
+                // 顯示測試摘要
+                script {
+                    def testResults = currentBuild.rawBuild.getAction(hudson.tasks.test.AbstractTestResultAction.class)
+                    if (testResults) {
+                        echo "測試結果摘要:"
+                        echo "總測試數: ${testResults.totalCount}"
+                        echo "通過測試: ${testResults.totalCount - testResults.failCount}"
+                        echo "失敗測試: ${testResults.failCount}"
+                        echo "跳過測試: ${testResults.skipCount}"
+                    }
+                }
+            }
+        }
+        
+        stage('網路診斷') {
+            steps {
+                echo '執行網路連通性診斷...'
+                
+                script {
+                    // 基本網路診斷
+                    sh '''
+                        echo "=== 網路診斷資訊 ==="
+                        echo "測試 DNS 解析:"
+                        nslookup google.com || echo "DNS 解析失敗"
+                        
+                        echo "測試網路連通性:"
+                        ping -c 3 8.8.8.8 || echo "網路連通性測試失敗"
+                        
+                        echo "測試 HTTPS 連接:"
+                        curl -I https://www.google.com --connect-timeout 10 || echo "HTTPS 連接失敗"
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                echo '清理測試環境...'
+                try {
+                    // 只在有工作空間的情況下清理
+                    if (env.WORKSPACE) {
+                        cleanWs()
+                    }
+                } catch (Exception e) {
+                    echo "清理工作空間時發生錯誤: ${e.getMessage()}"
+                }
+            }
+        }
+        
+        success {
+            echo '✅ 網站連通性測試全部通過！'
+            
+            script {
+                // 計算測試統計
+                def testResults = currentBuild.rawBuild.getAction(hudson.tasks.test.AbstractTestResultAction.class)
+                if (testResults) {
+                    def message = """
+                    🎉 網站連通性測試成功完成！
+                    📊 測試統計:
+                    • 總測試數: ${testResults.totalCount}
+                    • 通過: ${testResults.totalCount - testResults.failCount}
+                    • 失敗: ${testResults.failCount}
+                    • 跳過: ${testResults.skipCount}
+                    🔗 Build: #${env.BUILD_NUMBER}
+                    """.stripIndent()
+                    
+                    echo message
+                    
+                    // 可選：發送通知到 Slack
+                    if (env.SLACK_WEBHOOK) {
+                        slackSend(
+                            channel: '#testing',
+                            color: 'good',
+                            message: message
+                        )
+                    }
+                }
+            }
+        }
+        
+        failure {
+            echo '❌ 網站連通性測試失敗！'
+            
+            script {
+                if (env.SLACK_WEBHOOK) {
+                    slackSend(
+                        channel: '#testing',
+                        color: 'danger',
+                        message: "❌ 網站連通性測試失敗 - Build #${env.BUILD_NUMBER}\\n請檢查網路連接或目標網站狀態"
+                    )
+                }
+            }
+        }
+        
+        unstable {
+            echo '⚠️  測試結果不穩定，部分測試失敗'
+        }
+    }
+}
