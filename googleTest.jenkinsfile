@@ -2,9 +2,10 @@ pipeline {
     agent any
     
     environment {
-        // 設定環境變數
-        MAVEN_HOME = tool 'Maven'
-        PATH = "${MAVEN_HOME}/bin:${env.PATH}"
+        // 設定你的 Maven 路徑
+        MAVEN_HOME = 'D:\\maven\\apache-maven-3.8.6'
+        PATH = "${MAVEN_HOME}\\bin;${env.PATH}"
+        MAVEN_OPTS = '-Xmx1024m'
     }
     
     stages {
@@ -20,10 +21,36 @@ pipeline {
                     }
                 }
                 
-                sh '''
-                    mkdir -p src/test/java
-                    mkdir -p src/main/resources
+                bat '''
+                    if not exist src\\test\\java mkdir src\\test\\java
+                    if not exist src\\main\\resources mkdir src\\main\\resources
                 '''
+            }
+        }
+        
+        stage('檢查環境') {
+            steps {
+                echo '檢查環境依賴...'
+                script {
+                    // 檢查 Java 版本
+                    try {
+                        bat 'java -version'
+                    } catch (Exception e) {
+                        error "Java 未安裝或無法執行: ${e.getMessage()}"
+                    }
+                    
+                    // 檢查 Maven 版本
+                    try {
+                        bat 'mvn --version'
+                        echo '✅ Maven 環境檢查通過'
+                    } catch (Exception e) {
+                        error "Maven 無法執行，請檢查路徑: ${e.getMessage()}"
+                    }
+                    
+                    // 顯示環境資訊
+                    echo "MAVEN_HOME: ${env.MAVEN_HOME}"
+                    echo "PATH: ${env.PATH}"
+                }
             }
         }
         
@@ -269,7 +296,7 @@ public class WebConnectivityTest {
                 script {
                     try {
                         // 執行測試
-                        sh 'mvn test'
+                        bat "mvn test"
                         echo '測試執行完成！'
                         
                     } catch (Exception e) {
@@ -311,17 +338,17 @@ public class WebConnectivityTest {
                 echo '執行網路連通性診斷...'
                 
                 script {
-                    // 基本網路診斷
-                    sh '''
-                        echo "=== 網路診斷資訊 ==="
-                        echo "測試 DNS 解析:"
-                        nslookup google.com || echo "DNS 解析失敗"
+                    // Windows 網路診斷命令
+                    bat '''
+                        echo === 網路診斷資訊 ===
+                        echo 測試 DNS 解析:
+                        nslookup google.com || echo DNS 解析失敗
                         
-                        echo "測試網路連通性:"
-                        ping -c 3 8.8.8.8 || echo "網路連通性測試失敗"
+                        echo 測試網路連通性:
+                        ping -n 3 8.8.8.8 || echo 網路連通性測試失敗
                         
-                        echo "測試 HTTPS 連接:"
-                        curl -I https://www.google.com --connect-timeout 10 || echo "HTTPS 連接失敗"
+                        echo 測試 HTTPS 連接:
+                        curl -I https://www.google.com --connect-timeout 10 || echo HTTPS 連接失敗，可能需要安裝 curl
                     '''
                 }
             }
@@ -332,13 +359,17 @@ public class WebConnectivityTest {
         always {
             script {
                 echo '清理測試環境...'
-                try {
-                    // 只在有工作空間的情況下清理
-                    if (env.WORKSPACE) {
-                        cleanWs()
+                script {
+                    try {
+                        // 使用 Windows 命令清理而不是 cleanWs()
+                        bat '''
+                            if exist target rmdir /s /q target
+                            if exist src rmdir /s /q src
+                            if exist pom.xml del pom.xml
+                        '''
+                    } catch (Exception e) {
+                        echo "清理過程中發生錯誤: ${e.getMessage()}"
                     }
-                } catch (Exception e) {
-                    echo "清理工作空間時發生錯誤: ${e.getMessage()}"
                 }
             }
         }
