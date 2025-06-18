@@ -2,10 +2,11 @@ pipeline {
     agent any
     
     environment {
-        // 設定你的 Maven 路徑
+        // 設定你的 Maven 路徑和編碼
         MAVEN_HOME = 'D:\\maven\\apache-maven-3.8.6'
         PATH = "${MAVEN_HOME}\\bin;${env.PATH}"
-        MAVEN_OPTS = '-Xmx1024m'
+        MAVEN_OPTS = '-Xmx1024m -Dfile.encoding=UTF-8'
+        JAVA_TOOL_OPTIONS = '-Dfile.encoding=UTF-8'
     }
     
     stages {
@@ -108,8 +109,8 @@ pipeline {
     </build>
 </project>'''
                 
-                // 下載依賴 - 使用 bat 命令
-                bat 'mvn clean compile test-compile'
+                // 下載依賴 - 使用 bat 命令並指定編碼
+                bat 'mvn clean compile test-compile -Dfile.encoding=UTF-8 -Dproject.build.sourceEncoding=UTF-8'
             }
         }
         
@@ -182,7 +183,7 @@ public class WebConnectivityTest {
             String title = doc.title();
             System.out.println("頁面標題: " + title);
             assertTrue(title.toLowerCase().contains("google"), 
-                "頁面標題應包含 'google'");
+                "頁面標題應包含 google");
             
             System.out.println("✅ Google 連通性測試通過");
         }
@@ -296,8 +297,8 @@ public class WebConnectivityTest {
                 
                 script {
                     try {
-                        // 執行測試 - 使用 bat 命令
-                        bat 'mvn test'
+                        // 執行測試 - 使用 bat 命令並指定編碼
+                        bat 'mvn test -Dfile.encoding=UTF-8 -Dproject.build.sourceEncoding=UTF-8'
                         echo '測試執行完成！'
                         
                     } catch (Exception e) {
