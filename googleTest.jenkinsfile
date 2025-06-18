@@ -12,7 +12,6 @@ pipeline {
         stage('準備環境') {
             steps {
                 echo '開始準備測試環境...'
-                // 只在有工作空間時清理
                 script {
                     try {
                         cleanWs()
@@ -58,7 +57,7 @@ pipeline {
             steps {
                 echo '安裝測試依賴...'
                 
-                // 創建 pom.xml - 使用 HTTP 客戶端而非 Selenium
+                // 創建 pom.xml 文件
                 writeFile file: 'pom.xml', text: '''<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -72,10 +71,11 @@ pipeline {
     <packaging>jar</packaging>
     
     <properties>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
         <junit.version>5.9.2</junit.version>
         <okhttp.version>4.12.0</okhttp.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
     
     <dependencies>
@@ -108,7 +108,8 @@ pipeline {
     </build>
 </project>'''
                 
-                sh 'mvn clean compile test-compile'
+                // 下載依賴 - 使用 bat 命令
+                bat 'mvn clean compile test-compile'
             }
         }
         
@@ -295,8 +296,8 @@ public class WebConnectivityTest {
                 
                 script {
                     try {
-                        // 執行測試
-                        bat "mvn test"
+                        // 執行測試 - 使用 bat 命令
+                        bat 'mvn test'
                         echo '測試執行完成！'
                         
                     } catch (Exception e) {
